@@ -1,0 +1,166 @@
+---
+title: "PSoup G×E Extension — Analytical Explanation"
+format: html
+toc: true
+toc-depth: 3
+theme: cosmo
+number-sections: true
+---
+
+# 1. Background
+
+In this G×E extension of **PSoup**, we aim to represent how *sucrose* ($SUC$) interacts with the *strigolactone pathway* ($SL$) to determine bud outgrowth.
+
+- **WT plants**: sucrose increases both *carbon supply* and *hormonal release* by relieving the SL brake.  
+- **SL-pathway mutants (e.g., max2, smxl6_7_8)**: the brake is already off, so sucrose has much less effect.
+
+This model introduces a new internal variable:  
+$$
+mSL\_pathway\_intact \in [0,1]
+$$
+which defines how functional the SL signaling is (1 = WT, 0 = mutant).
+
+---
+
+# 2. Bud_release equation
+
+The Bud_release node integrates promotive and repressive influences:
+
+$$
+\text{Bud\_release} =
+\frac{2 \cdot \text{growth\_drive}}
+     {1 + \text{ABA\_brake} + \text{SL\_brake\_effective}}
+$$
+
+---
+
+## 2.1 Growth drive
+
+$$
+\text{growth\_drive} =
+\left( \frac{SUC + CK}{2} \right) \times (1 + \text{hormonal\_bonus})
+$$
+
+The first term $\frac{SUC + CK}{2}$ represents the **carbon–cytokinin base drive**, available to all genotypes.  
+The second term introduces the *hormonal bonus* due to sucrose when the SL pathway is intact.
+
+$$
+\text{hormonal\_bonus} = b \times \text{intact} \times \frac{SUC}{1 + SUC}
+$$
+
+where:
+- $b = 0.8$ : bonus strength coefficient  
+- `intact` = $mSL\_pathway\_intact$ (1 for WT, 0 for mutant)
+
+Hence:
+- WT receives an additional sucrose-driven “boost” up to +80% as $SUC$ increases.
+- SL-pathway mutants receive none (the pathway is broken).
+
+---
+
+## 2.2 ABA brake
+
+$$
+\text{ABA\_brake} = \frac{ABA + BRC1\_2}{2}
+$$
+
+This term captures hormonal repression by **abscisic acid** and **BRC1**, unchanged from the original PSoup.
+
+---
+
+## 2.3 SL brake (sucrose-sensitive inhibition)
+
+$$
+\text{SL\_brake\_effective} =
+SL_{base} \times \text{intact} \times
+\left(1 - \frac{SUC}{1 + SUC}\right)
+$$
+
+where $SL_{base} = mPerception\_SL$.
+
+- For WT: the brake **decreases** with increasing sucrose.  
+- For mutants: the brake is **zero** regardless of sucrose (pathway broken).
+
+---
+
+# 3. Combined analytical form
+
+By substitution:
+
+$$
+\boxed{
+B =
+\frac{
+  (SUC + CK) \, [1 + b \, I \, \frac{SUC}{1 + SUC}]
+}{
+  1 + ABA + BRC1\_2 + SL_{base} \, I \, (1 - \frac{SUC}{1 + SUC})
+}
+}
+$$
+
+where $I = mSL\_pathway\_intact \in \{0, 1\}$.
+
+---
+
+# 4. Analytical interpretation
+
+| Component | WT ($I=1$) | SL mutant ($I=0$) | Biological role |
+|------------|-------------|------------------|----------------|
+| Base drive | ✓ | ✓ | Carbon and cytokinin supply |
+| Hormonal bonus | ✓ (sucrose-responsive) | ✗ (absent) | Sucrose-induced hormonal release |
+| SL brake | ✓ (relieved by sucrose) | ✗ (absent) | SL inhibition |
+| ABA brake | ✓ | ✓ | Common inhibition |
+
+**Outcome**  
+- WT: low $SUC$ → strong brake, weak drive → low growth  
+  high $SUC$ → brake lifted, bonus strong → large growth  
+- Mutant: brake already off, no bonus → moderate, flat response  
+
+---
+
+# 5. Visual intuition
+
+Below, we plot the response of each term to sucrose (0–3×), for WT (intact=1) and mutant (intact=0).
+
+```{r}
+#| label: fig-terms
+#| echo: false
+#| fig-cap: "Sucrose-dependent components for WT vs SL mutant"
+library(ggplot2)
+
+SUC <- seq(0,3,0.1)
+b <- 0.8
+I_wt <- 1
+I_mut <- 0
+
+bonus_wt <- b*I_wt*SUC/(1+SUC)
+bonus_mut <- b*I_mut*SUC/(1+SUC)
+brake_wt <- I_wt*(1 - SUC/(1+SUC))
+brake_mut <- I_mut*(1 - SUC/(1+SUC))
+
+df <- data.frame(
+  SUC,
+  Bonus_WT=bonus_wt,
+  Bonus_Mutant=bonus_mut,
+  Brake_WT=brake_wt,
+  Brake_Mutant=brake_mut
+)
+
+p1 <- ggplot(df) +
+  geom_line(aes(SUC, Bonus_WT, color="WT")) +
+  geom_line(aes(SUC, Bonus_Mutant, color="Mutant")) +
+  labs(title="Hormonal bonus vs sucrose",
+       y="Bonus factor", x="Sucrose (x)") +
+  scale_color_manual(values=c("blue","red")) +
+  theme_minimal()
+
+p2 <- ggplot(df) +
+  geom_line(aes(SUC, Brake_WT, color="WT")) +
+  geom_line(aes(SUC, Brake_Mutant, color="Mutant")) +
+  labs(title="SL brake vs sucrose",
+       y="Effective brake", x="Sucrose (x)") +
+  scale_color_manual(values=c("blue","red")) +
+  theme_minimal()
+
+p1; p2
+```
